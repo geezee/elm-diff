@@ -225,19 +225,17 @@ heuristic : Node -> Float
 heuristic node =
     0
 
--- exploreStep : PriorityQueue -> PriorityQueue
--- exploreStep queue =
---     case popQueue queue of
---         Nothing -> emptyPriorityQueue
---         Just (top, rest) ->
---             let neighborsQueue =
---                 List.reduce (\neighbor -> \queue -> queue |> pushQueue
---                     { neighbor
---                     | score = top.score + neighbor.score
---                     , parent = top.id })
---                 emptyPriorityQueue
---                 (getNeighbors top) in
---             mergeQueues neighborsQueue rest |> pushQueue (markVisited top)
+exploreStep : PriorityQueue -> PriorityQueue
+exploreStep queue =
+    case popQueue queue of
+        Nothing -> emptyPriorityQueue
+        Just (top, rest) ->
+            let neighborsQueue = List.foldr (\neighbor -> \queue -> 
+                queue |> pushQueue
+                    { neighbor
+                    | score = top.score + neighbor.score + (heuristic neighbor)
+                    , parent = top.id }) emptyPriorityQueue (getNeighbors top)  in
+            mergeQueues neighborsQueue rest |> pushQueue (markVisited top)
 
 
 diff : String -> String -> Diff
