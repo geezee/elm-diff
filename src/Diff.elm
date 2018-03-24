@@ -18,8 +18,9 @@ jsonEncodeES es =
     let int = Json.Encode.int in
     let str = Json.Encode.string in
     case es of
-        Insert index payload -> l [ int 0, str payload ]
-        Remove index num -> l [ int 1, int num ]
+        Insert index payload -> l [ int index, str payload ]
+        Remove index num -> l [ int index, int num ]
+
 
 
 commonPrefix : String -> String -> String
@@ -189,3 +190,10 @@ diffToWithIndex i target seq =
 diffTo : String -> TransitionSequence -> Diff
 diffTo =
     diffToWithIndex 0
+
+
+serializeDiff : Diff -> String
+serializeDiff diff =
+    List.map (\edit -> jsonEncodeES edit) diff
+    |> Json.Encode.list
+    |> Json.Encode.encode 0
