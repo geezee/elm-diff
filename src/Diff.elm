@@ -1,6 +1,19 @@
 module Diff exposing (..)
 
 import Front exposing (..)
+import Json.Encode
+import Json.Decode
+
+type Edit = Insert Int String | Remove Int String
+
+jsonEncodeES : Edit -> Json.Encode.Value
+jsonEncodeES es =
+    let obj = \t -> \i -> \s ->
+        Json.Encode.list [ Json.Encode.int 0, Json.Encode.int i, Json.Encode.string s ]
+    in
+    case es of
+        Insert index str -> obj 0 index str
+        Remove index str -> obj 1 index str
 
 
 commonPrefix : String -> String -> String
@@ -38,6 +51,11 @@ pushValueAlong src trgt value axis front =
            front
 
 
+getEndValue : String -> String -> Value
+getEndValue str1 str2 =
+    (String.length str1, String.length str2)
+
+
 neighbors : String -> String -> Value -> Front
 neighbors src trgt value =
     if ((String.isEmpty src) || (String.isEmpty trgt)) then
@@ -54,9 +72,9 @@ neighbors src trgt value =
 
 
 
-reachedEnd : Front -> String -> String -> Bool
-reachedEnd front str1 str2 =
-    contains (String.length str1, String.length str2) front   
+reachedEnd : String -> String -> Front -> Bool
+reachedEnd str1 str2 front =
+    contains (getEndValue str1 str2) front
 
 
 advanceStep : String -> String -> Front -> Front
@@ -65,13 +83,49 @@ advanceStep src trgt front =
     Front new.entries (merge front new |> .parentMap)
 
 
-getEndValue : String -> String -> Value
-getEndValue str1 str2 =
-    (String.length str1, String.length str2)
-
-
 getPath : Value -> Front -> List Value
 getPath endValue front =
     case getParent endValue front of
         Nothing -> [ endValue ]
         Just parent -> endValue :: (getPath parent front)
+
+
+computeFinalFrontTimeout : Int -> String -> String -> Front
+computeFinalFrontTimeout maxLoop source target =
+    let endCriteria = reachedEnd source target in
+    let advancer = advanceStep source target in
+    let compute = \i -> \front ->
+        if (endCriteria front || i >= maxLoop) then front
+        else compute (i+1) (advancer front) in
+    compute 0 (empty |> push (0, 0))
+
+
+computeFinalFront : String -> String -> Front
+computeFinalFront source target =
+    computeFinalFrontTimeout ((String.length source) + (String.length target)) source target
+
+
+editLength : String -> String -> Int
+editLength str1 str2 =
+    let front = computeFinalFront str1 str2 in
+    List.length (getPath (getEndValue str1 str2) front)
+
+
+commonSubsequence : String -> String -> String
+commonSubsequence source target =
+    let front = computeFinalFront source target in
+    let path = getPath (getEndValue source target) front |> List.reverse in
+    source
+
+
+getEditScript : String -> String -> List Edit
+getEditScript source target =
+    let front = computeFinalFront source target in
+    let path = getPath (getEndValue source target) front in
+    []
+
+
+diff : String -> String -> String
+diff source target =
+    let editScript = getEditScript source target in
+    Json.Encode.encode 4 (Json.Encode.list (List.map jsonEncodeES editScript))
