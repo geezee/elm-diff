@@ -4,16 +4,22 @@ import Front exposing (..)
 import Json.Encode
 import Json.Decode
 
-type Edit = Insert Int String | Remove Int String
+type TransitionType = TInsert Int | TRemove Int | TNoChange Int
+type Edit = Insert Int String | Remove Int Int
+
+type alias Path = List Value
+type alias TransitionSequence = List TransitionType
+type alias Diff = List Edit
+
 
 jsonEncodeES : Edit -> Json.Encode.Value
 jsonEncodeES es =
-    let obj = \t -> \i -> \s ->
-        Json.Encode.list [ Json.Encode.int 0, Json.Encode.int i, Json.Encode.string s ]
-    in
+    let l = Json.Encode.list in
+    let int = Json.Encode.int in
+    let str = Json.Encode.string in
     case es of
-        Insert index str -> obj 0 index str
-        Remove index str -> obj 1 index str
+        Insert index payload -> l [ int 0, str payload ]
+        Remove index num -> l [ int 1, int num ]
 
 
 commonPrefix : String -> String -> String
@@ -83,11 +89,16 @@ advanceStep src trgt front =
     Front new.entries (merge front new |> .parentMap)
 
 
-getPath : Value -> Front -> List Value
-getPath endValue front =
+getPathRev : Value -> Front -> Path
+getPathRev endValue front =
     case getParent endValue front of
         Nothing -> [ endValue ]
-        Just parent -> endValue :: (getPath parent front)
+        Just parent -> endValue :: (getPathRev parent front)
+
+
+getPath : Value -> Front -> Path
+getPath v f =
+    getPathRev v f |> List.reverse
 
 
 computeFinalFrontTimeout : Int -> String -> String -> Front
@@ -118,14 +129,63 @@ commonSubsequence source target =
     source
 
 
-getEditScript : String -> String -> List Edit
-getEditScript source target =
-    let front = computeFinalFront source target in
-    let path = getPath (getEndValue source target) front in
-    []
+findTransSeqRev : Value -> Value -> TransitionSequence
+findTransSeqRev start end =
+    case (start, end) of
+        ((xs, ys), (xe, ye)) ->
+            -- base case: there's only one insert, one delete, or one nochange
+            if ( ((abs (xs - xe)) <= 1) && ((abs (ys - ye)) <= 1) ) then
+                if (xs == xe && ys == ye) then [ ]
+                else if ( xs == xe ) then [ TInsert 1 ]
+                else if ( ys == ye ) then [ TRemove 1 ]
+                else [ TNoChange 1 ]
+            -- recurse: there's a diagonal to follow to the base case
+            else
+                let transSeq = findTransSeqRev (xs+1,ys+1) (xe, ye) in
+                case transSeq of
+                    [ ] -> [ TNoChange 1 ]
+                    TNoChange l :: rest -> TNoChange (l+1) :: rest
+                    _ -> TNoChange 1 :: transSeq
 
 
-diff : String -> String -> String
-diff source target =
-    let editScript = getEditScript source target in
-    Json.Encode.encode 4 (Json.Encode.list (List.map jsonEncodeES editScript))
+findTransSeq : Value -> Value -> TransitionSequence
+findTransSeq start end =
+    findTransSeqRev start end |> List.reverse
+
+
+
+squashPath : Path -> TransitionSequence
+squashPath path =
+    case path of
+        [ ] -> [ ]
+        start :: [ ] -> [ ]
+        start :: (end :: rest) ->
+            let seq = findTransSeq start end in
+            let subpath = squashPath (end::rest) in
+            case (seq, subpath) of
+                (TInsert i::[], TInsert j::subsubpath) ->
+                    TInsert (i+j) :: subsubpath
+                (TRemove i::[], TRemove j::subsubpath) ->
+                    TRemove (i+j) :: subsubpath
+                _ ->
+                    List.append seq (squashPath (end::rest))
+
+
+
+diffToWithIndex : Int -> String -> TransitionSequence -> Diff
+diffToWithIndex i target seq =
+    case seq of
+        [ ] -> [ ]
+        transition :: rest ->
+        case transition of
+            TNoChange n -> diffToWithIndex (i+n) target rest
+            TInsert n -> 
+                let str = String.slice i (i+n) target in
+                    Insert i str :: diffToWithIndex (i+n) target rest
+            TRemove n -> Remove i n :: diffToWithIndex i target rest
+
+
+
+diffTo : String -> TransitionSequence -> Diff
+diffTo =
+    diffToWithIndex 0
