@@ -8,4 +8,4 @@ someone. In the case the elm compiler improves I can always get back to this
 code and finish it.
 
 Meanwhile, make sure to check the alternative native javascript (ES6) library:
-[elmo-diff](../elmo-diff)
+[elmo-diff](../../../elmo-diff)
